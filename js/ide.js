@@ -551,30 +551,33 @@ document.addEventListener("DOMContentLoaded", async function () {
         }
     });
 
+
+	// creating a chat component outside of the layout so both inline and chat window can access it
+	const chatComponent = document.createElement("div");
+	chatComponent.id = "chat-container";
+	chatComponent.className = "h-full w-full overflow-auto bg-gray-100 flex flex-col";
+	chatComponent.innerHTML = `
+		<div id="chat-apikey-container" class="w-full p-2">
+			<div class="flex flex-row items-center">
+				<input id="chat-apikey-input" type="password" class="w-full p-2 border border-gray-300 rounded" placeholder="Enter your OpenRouter API Key">
+				<button id="chat-apikey-save-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Save</button>
+			</div>
+		</div>
+		<div class="m-2 h-full bg-gray-300 flex flex-col rounded-lg overflow-auto">
+			<div id="chat-messages-container" class="h-full overflow-auto rounded-lg">
+				<div id="chat-messages" class="p-2"></div>
+			</div>
+			<div id="chat-input-container" class="p-2 flex flex-row items-center">
+				<input id="chat-user-input" type="text" class="w-full p-2 border border-gray-300 rounded" placeholder="Type your message here">
+				<button id="chat-user-send-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Send</button>
+			</div>
+		</div>
+	`;
+	const chatHistory = [];
+
+
     require(["vs/editor/editor.main"], function (ignorable) {
         layout = new GoldenLayout(layoutConfig, $("#judge0-site-content"));
-
-		// creating a chat component outside of the layout so both inline and chat window can access it
-		const chatComponent = document.createElement("div");
-		chatComponent.id = "chat-container";
-		chatComponent.className = "h-full w-full overflow-auto bg-gray-100 flex flex-col";
-		chatComponent.innerHTML = `
-			<div id="chat-apikey-container" class="w-full p-2">
-				<div class="flex flex-row items-center">
-					<input id="chat-apikey-input" type="password" class="w-full p-2 border border-gray-300 rounded" placeholder="Enter your OpenRouter API Key">
-					<button id="chat-apikey-save-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Save</button>
-				</div>
-			</div>
-			<div class="m-2 h-full bg-gray-300 flex flex-col rounded-lg overflow-auto">
-				<div id="chat-messages-container" class="h-full overflow-auto rounded-lg">
-					<div id="chat-messages" class="p-2"></div>
-				</div>
-				<div id="chat-input-container" class="p-2 flex flex-row items-center">
-					<input id="chat-user-input" type="text" class="w-full p-2 border border-gray-300 rounded" placeholder="Type your message here">
-					<button id="chat-user-send-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Send</button>
-				</div>
-			</div>
-		`;
 
         layout.registerComponent("source", function (container, state) {
             sourceEditor = monaco.editor.create(container.getElement()[0], {
@@ -725,7 +728,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 			const chatMessages = chatComponent.querySelector("#chat-messages");
 			const userInput = chatComponent.querySelector("#chat-user-input");
 			const userSendBtn = chatComponent.querySelector("#chat-user-send-btn");
-			let chatHistory = [];
 
 			const userCode = sourceEditor.getValue();
 			const problemInput = stdinEditor.getValue();
