@@ -554,6 +554,28 @@ document.addEventListener("DOMContentLoaded", async function () {
     require(["vs/editor/editor.main"], function (ignorable) {
         layout = new GoldenLayout(layoutConfig, $("#judge0-site-content"));
 
+		// creating a chat component outside of the layout so both inline and chat window can access it
+		const chatComponent = document.createElement("div");
+		chatComponent.id = "chat-container";
+		chatComponent.className = "h-full w-full overflow-auto bg-gray-100 flex flex-col";
+		chatComponent.innerHTML = `
+			<div id="chat-apikey-container" class="w-full p-2">
+				<div class="flex flex-row items-center">
+					<input id="chat-apikey-input" type="password" class="w-full p-2 border border-gray-300 rounded" placeholder="Enter your OpenRouter API Key">
+					<button id="chat-apikey-save-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Save</button>
+				</div>
+			</div>
+			<div class="m-2 h-full bg-gray-300 flex flex-col rounded-lg overflow-auto">
+				<div id="chat-messages-container" class="h-full overflow-auto rounded-lg">
+					<div id="chat-messages" class="p-2"></div>
+				</div>
+				<div id="chat-input-container" class="p-2 flex flex-row items-center">
+					<input id="chat-user-input" type="text" class="w-full p-2 border border-gray-300 rounded" placeholder="Type your message here">
+					<button id="chat-user-send-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Send</button>
+				</div>
+			</div>
+		`;
+
         layout.registerComponent("source", function (container, state) {
             sourceEditor = monaco.editor.create(container.getElement()[0], {
                 automaticLayout: true,
@@ -565,6 +587,107 @@ document.addEventListener("DOMContentLoaded", async function () {
                     enabled: true
                 }
             });
+
+			function initializeInlineChat(editorWidth) {
+				const inlineEditorContainer = document.createElement("div");
+				inlineEditorContainer.id = "inline-chat-container";
+				inlineEditorContainer.className = `h-[200px] text-gray-700 flex flex-col items-center hidden overflow-auto absolute z-1000`;
+				// inlineEditorContainer.style.width = `${editorWidth-150}px`;
+				inlineEditorContainer.style.width = `400px`;
+				inlineEditorContainer.innerHTML = `
+					<div class="w-full bg-gray-100 flex justify-between p-2">
+						<input id="inline-chat-input" type="text" value="" class="w-full p-2 border border-gray-300 rounded overflow-auto" placeholder="Ask Assistant">
+						<button id="inline-chat-send-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Send</button>
+					</div>
+				`;
+				return inlineEditorContainer;
+			}
+
+			function getTextPointerPosition() {
+				const position = sourceEditor.getPosition();
+				const { lineNumber, column } = position;
+				const lineHeight = sourceEditor.getOption(monaco.editor.EditorOption.lineHeight);
+				const { top, left } = sourceEditor.getScrolledVisiblePosition({ lineNumber, column });
+				return { top, left };
+			}
+			async function inlineChat() {
+				const { top, left } = getTextPointerPosition();
+				const editorElement = sourceEditor.getDomNode();
+				const editorWidth = sourceEditor.getLayoutInfo().width;
+
+				const inlineChatEditor = initializeInlineChat(editorWidth);
+				const inlineChatInput = inlineChatEditor.querySelector("#inline-chat-input");
+				const inlineChatSendBtn = inlineChatEditor.querySelector("#inline-chat-send-btn");
+				const chatMessages = document.querySelector("#chat-messages"); // from the code assistant window
+				inlineChatEditor.style.display = inlineChatEditor.style.display === "block" ? "none" : "block";
+
+				if (inlineChatEditor.style.display === "block" && editorElement) {
+					editorElement.appendChild(inlineChatEditor);
+					inlineChatEditor.style.top = `${top}px`;
+					inlineChatEditor.style.left = `63px`;
+					document.getElementById("inline-chat-input").focus();
+			
+					inlineChatSendBtn.addEventListener("click", async () => {
+						const message = inlineChatInput.value.trim();
+						if (!message) return;
+
+						addUserMessage(message, chatMessages, []);
+						inlineChatInput.value = "";
+
+						const userCode = sourceEditor.getValue();
+						const messageContext = 
+							`
+							You have access to the following context to answer the user's question:
+
+							Language: ${userCode.language}
+							
+							<user_code>
+								${userCode ? userCode : "No user code provided"}
+							</user_code>
+							`; 
+						
+						const response = await sendChatMessage(message, messageContext)
+						.then(response => response.json())
+						.catch(error => {
+							addAssistantmessage("Sorry, there was an error: " + error.message);
+						})
+						addAssistantmessage(response.choices[0].message.content, chatMessages, []);
+
+						inlineChatEditor.parentNode.removeChild(inlineChatEditor);
+					});
+				}
+			}
+			
+			sourceEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, async () => {
+				if (document.getElementById("inline-chat-container")) {
+					document.getElementById("inline-chat-container").remove();
+				}
+				await inlineChat();
+			});
+
+			// use effect to keep inline chat in position while scroll
+			sourceEditor.onDidScrollChange((event) => {
+				const { top, left } = getTextPointerPosition();
+				const inlineChatContainer = document.getElementById("inline-chat-container");
+				if (inlineChatContainer) {
+					inlineChatContainer.style.top = `${top}px`;
+				}
+			});
+
+			// sourceEditor.onDidLayoutChange(() => {
+			// 	const inlineChatContainer = document.getElementById("inline-chat-container");
+			// 	if (inlineChatContainer) {
+			// 		// const editorWidth = sourceEditor.getLayoutInfo().width;
+			// 		// inlineChatContainer.style.width = `${editorWidth - 150}px`;
+			// 	}
+			// });
+
+			sourceEditor.addCommand(monaco.KeyCode.Escape, () => { 
+				const inlineChatContainer = document.getElementById("inline-chat-container");
+				if (inlineChatContainer) {
+					inlineChatContainer.remove();
+				}
+			});
 
             sourceEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
         });
@@ -596,29 +719,6 @@ document.addEventListener("DOMContentLoaded", async function () {
         });
 
 		layout.registerComponent("chat", function (container, state) {
-			
-			// adding component and inner html
-			const chatComponent = document.createElement("div");
-			chatComponent.id = "chat-container";
-			chatComponent.className = "h-full w-full overflow-auto bg-gray-100 flex flex-col";
-			chatComponent.innerHTML = `
-				<div id="chat-apikey-container" class="w-full p-2">
-					<div class="flex flex-row items-center">
-						<input id="chat-apikey-input" type="password" class="w-full p-2 border border-gray-300 rounded" placeholder="Enter your OpenRouter API Key">
-						<button id="chat-apikey-save-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Save</button>
-					</div>
-				</div>
-				<div class="m-2 h-full bg-gray-300 flex flex-col rounded-lg overflow-auto">
-					<div id="chat-messages-container" class="h-full overflow-auto rounded-lg">
-						<div id="chat-messages" class="p-2"></div>
-					</div>
-					<div id="chat-input-container" class="p-2 flex flex-row items-center">
-						<input id="chat-user-input" type="text" class="w-full p-2 border border-gray-300 rounded" placeholder="Type your message here">
-						<button id="chat-user-send-btn" class="ml-2 p-2 bg-blue-500 text-white rounded">Send</button>
-					</div>
-				</div>
-			`;
-
 			// adding event listeners to process information
 			const apiKeyInput = chatComponent.querySelector("#chat-apikey-input");
 			const saveApiKeyBtn = chatComponent.querySelector("#chat-apikey-save-btn");
@@ -626,6 +726,29 @@ document.addEventListener("DOMContentLoaded", async function () {
 			const userInput = chatComponent.querySelector("#chat-user-input");
 			const userSendBtn = chatComponent.querySelector("#chat-user-send-btn");
 			let chatHistory = [];
+
+			const userCode = sourceEditor.getValue();
+			const problemInput = stdinEditor.getValue();
+			const expectedOutput = stdoutEditor.getValue();
+
+			const messageContext = 
+				`
+				You have access to the following context to answer the user's question:
+
+				Language: ${userCode.language}
+				
+				<user_code>
+					${userCode ? userCode : "No user code provided"}
+				</user_code>
+
+				<problem_input>
+					${problemInput ? problemInput : "No problem input provided"}
+				</problem_input>
+
+				<expected_output>
+					${expectedOutput ? expectedOutput : "No expected output provided"}
+				</expected_output>
+				`; 
 
 			apiKeyInput.addEventListener("keydown", (event) => {
 				if (event.key === "Enter") {
@@ -649,104 +772,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 				const message = userInput.value.trim();
 				if (!message) return;
 				
-				addUserMessage(message);
+				addUserMessage(message, chatMessages, chatHistory);
 				userInput.value = "";
 
-				const response = await sendMessage(message)
+				const response = await sendChatMessage(message, messageContext, chatHistory)
 				.then(response => response.json())
 				.catch(error => {
 					addAssistantmessage("Sorry, there was an error: " + error.message);
 					console.error("Error:", error);
 				});
-
-				addAssistantmessage(response.choices[0].message.content);
+				
+				addAssistantmessage(response.choices[0].message.content, chatMessages, chatHistory);
 			});
 
-			async function sendMessage(message) {
-				const userCode = sourceEditor.getValue();
-				const problemInput = stdinEditor.getValue();
-				const expectedOutput = stdoutEditor.getValue();
-				const messageContext = 
-					`
-					You have access to the following context to answer the user's question:
-
-					Language: ${userCode.language}
-					
-					<user_code>
-						${userCode ? userCode : "No user code provided"}
-					</user_code>
-
-					<problem_input>
-						${problemInput ? problemInput : "No problem input provided"}
-					</problem_input>
-
-					<expected_output>
-						${expectedOutput ? expectedOutput : "No expected output provided"}
-					</expected_output>
-					`; 
-
-				const apiKey = localStorage.getItem("chat-apikey");
-				const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"Authorization": `Bearer ${apiKey}`
-					},
-					body: JSON.stringify({
-						model: "google/gemini-2.0-flash-thinking-exp:free",
-						messages: [
-							{ 
-								role: "system", 
-								content: `You are an expert coding assistant and tutor. 
-									Help the user with their code or provide an accurate response to the user's question
-									based on the context provided. If the user asks for code, do not simply give the user the answer, 
-									but provide prompting to help the user understand the concepts and reasoning behind the solution.
-									Provide a succinct response that does not exceed 15 sentences.`
-							},
-							{...chatHistory},
-							{ 
-								role: "user", 
-								content: 
-								`
-								${messageContext}
-								\`\`\`
-								User Question: ${message}
-								`
-							}
-						]
-					})
-				});
-
-				return response;
-			}
-			
-			function addUserMessage(message) {
-				const messageHTML = `
-					<div class="flex flex-row justify-end mb-2">
-						<div class="user-message bg-blue-500 text-white p-2 rounded-lg max-w-xs">
-							${message}
-						</div>
-					</div>
-				`
-				chatMessages.insertAdjacentHTML("beforeend", messageHTML);
-				chatMessages.scrollTop = chatMessages.scrollHeight;
-				chatHistory = [...chatHistory, { role: "user", content: message }];
-			}
-	
-			function addAssistantmessage(message) {
-				const messageHTML = `
-					<div class="flex flex-row justify-start mb-2">
-						<div class="assistant-message bg-gray-500 text-white p-2 rounded-lg max-w-xs">
-							${message}
-						</div>
-					</div>
-				`
-				chatMessages.insertAdjacentHTML("beforeend", messageHTML);
-				chatMessages.scrollTop = chatMessages.scrollHeight;
-				chatHistory = [...chatHistory, { role: "assistant", content: message }];
-			}
-	
-			// finally adding the component to the container
 			container.getElement().append(chatComponent);
 		});
 
@@ -758,6 +796,88 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         layout.init();
     });
+
+	async function sendChatMessage(message, messageContext, chatHistory) {
+		const apiKey = localStorage.getItem("chat-apikey");
+		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${apiKey}`
+			},
+			body: JSON.stringify({
+				model: "google/gemini-2.0-flash-thinking-exp:free",
+				messages: [
+					{ 
+						role: "system", 
+						content: `You are an expert coding assistant and tutor. 
+							Help the user with their code or provide an accurate response to the user's question
+							based on the context provided. If the user asks for code, do not simply give the user the answer, 
+							but provide prompting to help the user understand the concepts and reasoning behind the solution.
+							Provide a succinct response that does not exceed 15 sentences.`
+					},
+					{...chatHistory},
+					{ 
+						role: "user", 
+						content: 
+						`
+						${messageContext}
+						\`\`\`
+						User Question: ${message}
+						`
+					}
+				]
+			})
+		});
+
+		return response;
+	}
+
+	function addUserMessage(message, chatMessages, chatHistory) {
+		const messageHTML = `
+			<div class="flex flex-row justify-end mb-2">
+				<div class="user-message bg-blue-500 text-white p-2 rounded-lg max-w-xs">
+					${message}
+				</div>
+			</div>
+		`
+		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
+		chatMessages.scrollTop = chatMessages.scrollHeight;
+		chatHistory = [...chatHistory, { role: "user", content: message }];
+	}
+
+	function addAssistantmessage(message, chatMessages, chatHistory) {
+		const messageHTML = `
+			<div class="flex flex-row justify-start mb-2">
+				<div class="assistant-message bg-gray-500 text-white p-2 rounded-lg max-w-xs">
+					${message}
+				</div>
+			</div>
+		`
+		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
+		chatMessages.scrollTop = chatMessages.scrollHeight;
+		chatHistory = [...chatHistory, { role: "assistant", content: message }];
+	}
+
+	// Register a completion item provider for the user language
+	// function registerCompletionItemProvider(language) {
+	// 	monaco.languages.registerCompletionItemProvider(monaco.editor.getModelLanguage(sourceEditor.getModel()), {
+	// 		triggerCharacters: ['.', ':'],
+	// 		provideCompletionItems: function (model, position) {
+	// 			const suggestions = [];
+	// 			suggestions.push({
+	// 				label: 'Example Suggestion',
+	// 				kind: monaco.languages.CompletionItemKind.Keyword,
+	// 				insertText: 'example',
+	// 			});
+	// 			return { suggestions: suggestions };
+	// 		},
+	// 		resolveCompletionItem: function (item) {
+	// 			return item;
+	// 		}
+	// 	});
+	// }
+
 
     let superKey = "⌘";
     if (!/(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
