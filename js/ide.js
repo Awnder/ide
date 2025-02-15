@@ -576,6 +576,69 @@ document.addEventListener("DOMContentLoaded", async function () {
 	const chatHistory = [];
 
 
+  async function sendChatMessage(message, messageContext, chatHistory) {
+		const apiKey = localStorage.getItem("chat-apikey");
+		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${apiKey}`
+			},
+			body: JSON.stringify({
+				model: "google/gemini-2.0-flash-thinking-exp:free",
+				messages: [
+					{ 
+						role: "system", 
+						content: `You are an expert coding assistant and tutor. 
+							Help the user with their code or provide an accurate response to the user's question
+							based on the context provided. If the user asks for code, do not simply give the user the answer, 
+							but provide prompting to help the user understand the concepts and reasoning behind the solution.
+							Provide a succinct response that does not exceed 15 sentences.`
+					},
+					{...chatHistory},
+					{ 
+						role: "user", 
+						content: 
+						`
+						${messageContext}
+						\`\`\`
+						User Question: ${message}
+						`
+					}
+				]
+			})
+		});
+
+		return response;
+	}
+
+	function addUserMessage(message, chatMessages, chatHistory) {
+		const messageHTML = `
+			<div class="flex flex-row justify-end mb-2">
+				<div class="user-message bg-blue-500 text-white p-2 rounded-lg max-w-xs">
+					${message}
+				</div>
+			</div>
+		`
+		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
+		chatMessages.scrollTop = chatMessages.scrollHeight;
+		chatHistory = [...chatHistory, { role: "user", content: message }];
+	}
+
+	function addAssistantmessage(message, chatMessages, chatHistory) {
+		const messageHTML = `
+			<div class="flex flex-row justify-start mb-2">
+				<div class="assistant-message bg-gray-500 text-white p-2 rounded-lg max-w-xs">
+					${message}
+				</div>
+			</div>
+		`
+		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
+		chatMessages.scrollTop = chatMessages.scrollHeight;
+		chatHistory = [...chatHistory, { role: "assistant", content: message }];
+	}
+
+
     require(["vs/editor/editor.main"], function (ignorable) {
         layout = new GoldenLayout(layoutConfig, $("#judge0-site-content"));
 
@@ -676,14 +739,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 					inlineChatContainer.style.top = `${top}px`;
 				}
 			});
-
-			// sourceEditor.onDidLayoutChange(() => {
-			// 	const inlineChatContainer = document.getElementById("inline-chat-container");
-			// 	if (inlineChatContainer) {
-			// 		// const editorWidth = sourceEditor.getLayoutInfo().width;
-			// 		// inlineChatContainer.style.width = `${editorWidth - 150}px`;
-			// 	}
-			// });
 
 			sourceEditor.addCommand(monaco.KeyCode.Escape, () => { 
 				const inlineChatContainer = document.getElementById("inline-chat-container");
@@ -798,68 +853,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         layout.init();
     });
-
-	async function sendChatMessage(message, messageContext, chatHistory) {
-		const apiKey = localStorage.getItem("chat-apikey");
-		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"Authorization": `Bearer ${apiKey}`
-			},
-			body: JSON.stringify({
-				model: "google/gemini-2.0-flash-thinking-exp:free",
-				messages: [
-					{ 
-						role: "system", 
-						content: `You are an expert coding assistant and tutor. 
-							Help the user with their code or provide an accurate response to the user's question
-							based on the context provided. If the user asks for code, do not simply give the user the answer, 
-							but provide prompting to help the user understand the concepts and reasoning behind the solution.
-							Provide a succinct response that does not exceed 15 sentences.`
-					},
-					{...chatHistory},
-					{ 
-						role: "user", 
-						content: 
-						`
-						${messageContext}
-						\`\`\`
-						User Question: ${message}
-						`
-					}
-				]
-			})
-		});
-
-		return response;
-	}
-
-	function addUserMessage(message, chatMessages, chatHistory) {
-		const messageHTML = `
-			<div class="flex flex-row justify-end mb-2">
-				<div class="user-message bg-blue-500 text-white p-2 rounded-lg max-w-xs">
-					${message}
-				</div>
-			</div>
-		`
-		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
-		chatMessages.scrollTop = chatMessages.scrollHeight;
-		chatHistory = [...chatHistory, { role: "user", content: message }];
-	}
-
-	function addAssistantmessage(message, chatMessages, chatHistory) {
-		const messageHTML = `
-			<div class="flex flex-row justify-start mb-2">
-				<div class="assistant-message bg-gray-500 text-white p-2 rounded-lg max-w-xs">
-					${message}
-				</div>
-			</div>
-		`
-		chatMessages.insertAdjacentHTML("beforeend", messageHTML);
-		chatMessages.scrollTop = chatMessages.scrollHeight;
-		chatHistory = [...chatHistory, { role: "assistant", content: message }];
-	}
 
 	// Register a completion item provider for the user language
 	// function registerCompletionItemProvider(language) {
